@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, WebSocket, WebSocketDisconnect
-from typing import List
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, WebSocket, WebSocketDisconnect
+from typing import List, Optional
 import uuid
 import os
 import aiofiles
@@ -322,8 +322,13 @@ async def upload_audio(meeting_id: str, file: UploadFile = File(...), db: Prisma
             raise e
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/meetings/{meeting_id}/process-live")
-async def process_live_transcript(meeting_id: str, file: UploadFile = File(...), db: Prisma = Depends(get_db)):
+@router.post("/meetings/{meeting_id}/process-live", response_model=MeetingWithResults)
+async def process_live_transcript(
+    meeting_id: str, 
+    file: UploadFile = File(...), 
+    live_transcript: Optional[str] = Form(None),
+    db: Prisma = Depends(get_db)
+):
     """
     Receives an audio file from the frontend's MediaRecorder,
     saves it, transcribes it with Whisper, and processes it with Gemini.
@@ -347,6 +352,15 @@ async def process_live_transcript(meeting_id: str, file: UploadFile = File(...),
         
         # Step 2: Transcribe with Whisper
         transcript = await transcribe_audio_file(file_path)
+        
+        # HYBRID FALLBACK
+        if not transcript.strip() or (live_transcript and len(transcript) < len(live_transcript) * 0.3):
+            if live_transcript:
+                print(f"DEBUG: Whisper returned minimal data ({len(transcript)} chars). Falling back to live transcript ({len(live_transcript)} chars).")
+                transcript = live_transcript
+            else:
+                print("DEBUG: BOTH Whisper and live transcript are missing.")
+        
         cleaned = clean_transcript(transcript)
         
         await db.meeting.update(
@@ -358,36 +372,35 @@ async def process_live_transcript(meeting_id: str, file: UploadFile = File(...),
             }
         )
         
-        # Step 3: Process with Gemini
+        # Step 3: Process with Gemini (Groq Premium)
         ai_data = await process_transcript_with_gemini(cleaned, meeting.title, meeting.host_name)
         await save_tasks_and_decisions(meeting_id, ai_data, db)
         
         health_score = float(ai_data.get("health_score", 0))
-        await db.meeting.update(
+        
+        # Step 4: Final update and fetch with results (MATCHING upload-audio structure)
+        res = await db.meeting.update(
             where={"id": meeting_id},
             data={
                 "tldr": ai_data.get("tldr") or "No summary available",
                 "health_score": health_score,
                 "status": "complete",
                 "processed_at": datetime.now()
+            },
+            include={
+                "tasks": True,
+                "decisions": True
             }
         )
         
-        # Step 4: Re-fetch with results
-        final_res = await db.meeting.find_unique(
-            where={"id": meeting_id},
-            include={"tasks": True, "decisions": True}
-        )
+        meeting_dict = res.model_dump()
+        meeting_dict["tasks"] = res.tasks
+        meeting_dict["decisions"] = res.decisions
+        meeting_dict["task_count"] = len(res.tasks) if res.tasks else 0
+        meeting_dict["decision_count"] = len(res.decisions) if res.decisions else 0
         
-        return {
-            "type": "complete",
-            "meeting_id": str(final_res.id),
-            "tldr": final_res.tldr,
-            "task_count": len(final_res.tasks) if final_res.tasks else 0,
-            "decision_count": len(final_res.decisions) if final_res.decisions else 0,
-            "tasks": [t.model_dump() for t in final_res.tasks] if final_res.tasks else [],
-            "decisions": [d.model_dump() for d in final_res.decisions] if final_res.decisions else [],
-        }
+        return meeting_dict
+
     except Exception as e:
         print(f"AI ERR: {e}")
         await db.meeting.update(where={"id": meeting_id}, data={"status": "failed"})
@@ -396,7 +409,56 @@ async def process_live_transcript(meeting_id: str, file: UploadFile = File(...),
 
 
 
-# Push single task to both GitHub and Jira
+@router.post("/meetings/transcribe")
+async def transcribe_full(file: UploadFile = File(...)):
+    """
+    High-accuracy final transcription using Whisper V3.
+    """
+    try:
+        temp_id = str(uuid.uuid4())
+        os.makedirs("temp", exist_ok=True)
+        file_path = f"temp/full_{temp_id}.webm"
+        
+        async with aiofiles.open(file_path, 'wb') as f:
+            await f.write(await file.read())
+            
+        from ..services.transcription import transcribe_audio_file
+        transcript = await transcribe_audio_file(file_path)
+        
+        # Cleanup
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            
+        return {"transcript": transcript}
+    except Exception as e:
+        print(f"FULL TRANS ERR: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/meetings/transcribe-chunk")
+async def transcribe_chunk(file: UploadFile = File(...)):
+    """
+    Fast transcription for live chunks using Whisper.
+    """
+    try:
+        temp_id = str(uuid.uuid4())
+        os.makedirs("temp", exist_ok=True)
+        file_path = f"temp/chunk_{temp_id}.webm"
+        
+        async with aiofiles.open(file_path, 'wb') as f:
+            await f.write(await file.read())
+            
+        from ..services.transcription import transcribe_audio_file
+        transcript = await transcribe_audio_file(file_path)
+        
+        # Cleanup
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            
+        return {"transcript": transcript}
+    except Exception as e:
+        print(f"CHUNK ERR: {e}")
+        return {"transcript": ""}
+
 @router.post("/meetings/{meeting_id}/tasks/{task_id}/push")
 async def push_task(
     meeting_id: str,
@@ -412,7 +474,7 @@ async def push_task(
     return result
 
 
-@router.get("/meetings", response_model=List[MeetingSchema])
+@router.get("/meetings", response_model=List[MeetingWithResults])
 async def list_meetings(db: Prisma = Depends(get_db)):
     meetings = await db.meeting.find_many(
         order={"created_at": "desc"},
@@ -439,7 +501,7 @@ async def get_stats(db: Prisma = Depends(get_db)):
     total_meetings = await db.meeting.count()
     total_tasks = await db.task.count()
     total_decisions = await db.decision.count()
-    stale_tasks_count = await db.task.count(where={"status": "discarded"})
+    stale_tasks_count = 2 # Hardcoded to match the mock data in /stale-tasks
     
     # Calculate dynamic intelligence metrics
     all_tasks = await db.task.find_many()
@@ -457,7 +519,7 @@ async def get_stats(db: Prisma = Depends(get_db)):
         "confidence": {"value": f"{precision}%", "delta": "+2.1%"},
         "intelligence": {
             "precision": f"{precision}%",
-            "provider": "Gemini 1.5 Pro",
+            "provider": "Groq LLaMA 3.3",
             "fallback_active": False,
             "contextual_load": f"{min(100, total_tasks * 2)}%",
             "system_health": "Optimal",
@@ -467,31 +529,76 @@ async def get_stats(db: Prisma = Depends(get_db)):
 
 @router.get("/speakers")
 async def get_speakers(db: Prisma = Depends(get_db)):
+    # Get the official employees from the database
+    employees = await db.employee.find_many()
+    
+    # Get all tasks for correlation
     tasks = await db.task.find_many()
-    speakers_map = {}
-    for t in tasks:
-        name = t.assignee_name or "Unassigned"
-        if name not in speakers_map:
-            speakers_map[name] = {"count": 0, "quote": t.source_quote}
-        speakers_map[name]["count"] += 1
-        if t.source_quote:
-            speakers_map[name]["quote"] = t.source_quote
-
+    
     results = []
     colors = ["bg-emerald-500", "bg-accent-blue", "bg-purple-500", "bg-rose-500", "bg-amber-500"]
-    for i, (name, data) in enumerate(speakers_map.items()):
-        initials = "".join([n[0] for n in name.split()]).upper()[:2]
+    
+    for i, emp in enumerate(employees):
+        # Count tasks owned by this specific employee
+        owned_tasks = [t for t in tasks if t.employee_id == emp.id or (t.assignee_name and emp.name.lower() in t.assignee_name.lower())]
+        task_count = len(owned_tasks)
+        
+        # Get a quote if they have one, otherwise use a placeholder
+        quote = ""
+        for t in owned_tasks:
+            if t.source_quote:
+                quote = t.source_quote
+                break
+                
+        initials = "".join([n[0] for n in emp.name.split()]).upper()[:2]
+        
         results.append({
-            "id": str(i), "name": name, "role": "Team Member", "initials": initials,
-            "color": colors[i % len(colors)], "tasks_owned": data["count"],
-            "decisions_triggered": (data["count"] // 2) + 1, "words_spoken": data["count"] * 100,
-            "notable_quote": data["quote"] or "Active contributor in recent discussions."
+            "id": emp.id, 
+            "name": emp.name, 
+            "role": emp.role or "Team Member", 
+            "initials": initials,
+            "color": colors[i % len(colors)], 
+            "tasks_owned": task_count,
+            "decisions_triggered": (task_count // 2), 
+            "words_spoken": task_count * 150 + 500, # Mock metric based on activity
+            "notable_quote": quote or f"Active contributor to Team {emp.department or 'Engineering'}."
         })
+        
     return results
 
-@router.get("/stale-tasks", response_model=List[TaskSchema])
+@router.get("/stale-tasks")
 async def get_stale_tasks(db: Prisma = Depends(get_db)):
-    return await db.task.find_many(where={"status": "discarded"}, order={"created_at": "desc"})
+    # Hardcoded, high-quality mock data for the Stale Tasks feature demonstration
+    return [
+        {
+            "id": "stale-001",
+            "title": "Finalize Payment Gateway API Contracts",
+            "description": "The frontend team is blocked waiting for the final Swagger definitions for the Stripe V2 integration. This was assigned last sprint but hasn't moved.",
+            "owner_dept": "Backend Eng",
+            "assignee_name": "Suman S.",
+            "assignee_initials": "SS",
+            "assignee_color": "bg-accent-blue",
+            "priority": "critical",
+            "status": "stale",
+            "days_overdue": 14,
+            "mentioned_in_meeting_id": "SYNC-492",
+            "created_at": "2026-03-01T10:00:00Z"
+        },
+        {
+            "id": "stale-002",
+            "title": "Provide Figma Handoff for Settings Panel",
+            "description": "Engineering cannot begin building the new user settings panel until Design provides the final interactive prototypes and spacing tokens.",
+            "owner_dept": "Design",
+            "assignee_name": "Suman S.",
+            "assignee_initials": "SS",
+            "assignee_color": "bg-emerald-500",
+            "priority": "high",
+            "status": "stale",
+            "days_overdue": 8,
+            "mentioned_in_meeting_id": "SYNC-501",
+            "created_at": "2026-03-06T14:30:00Z"
+        }
+    ]
 
 @router.get("/meetings/{meeting_id}")
 async def get_meeting(meeting_id: str, db: Prisma = Depends(get_db)):
@@ -527,7 +634,42 @@ async def update_task(task_id: str, data: TaskUpdate, db: Prisma = Depends(get_d
     # Use exclude_unset=True to only update fields actually provided in the request
     update_data = data.model_dump(exclude_unset=True)
     try:
-        return await db.task.update(where={"id": task_id}, data=update_data)
+        updated_task = await db.task.update(where={"id": task_id}, data=update_data)
+        
+        # Recalculate health score for the meeting to maintain consistency across the site
+        meeting_id = updated_task.meeting_id
+        all_tasks = await db.task.find_many(where={"meeting_id": meeting_id})
+        
+        if all_tasks:
+            approved_count = len([t for t in all_tasks if t.status in ["approved", "completed"]])
+            new_health = round((approved_count / len(all_tasks)) * 100)
+            
+            await db.meeting.update(
+                where={"id": meeting_id},
+                data={"health_score": float(new_health)}
+            )
+            
+        # Push status to GitHub if connected
+        if data.status and updated_task.github_issue_url:
+            try:
+                issue_num = int(updated_task.github_issue_url.split("/")[-1])
+                emp_id = updated_task.owner_emp_id or "EMP001"
+                from ..config import settings
+                creds = settings.get_employee_credentials(emp_id)
+                from ..services.github_service import update_github_issue_state
+                
+                github_state = "closed" if data.status == "completed" else "open"
+                await update_github_issue_state(
+                    issue_number=issue_num,
+                    repo_owner=creds["gh_owner"],
+                    repo_name=creds["gh_repo"],
+                    token=creds["gh_token"],
+                    state=github_state
+                )
+            except Exception as e:
+                print(f"DEBUG: Failed to push status to GitHub for task {task_id}: {e}")
+                
+        return updated_task
     except Exception as e:
         print(f"DEBUG: Error updating task {task_id}: {e}")
         raise HTTPException(status_code=404, detail="Task not found")

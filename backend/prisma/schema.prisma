@@ -7,6 +7,104 @@ generator client {
   provider = "prisma-client-py"
 }
 
-model Test {
-  id String @id @default(uuid())
+enum TaskStatus {
+  pending_review
+  approved
+  in_progress
+  completed
+  failed
+  discarded
+  pushed
+}
+
+enum Priority {
+  high
+  medium
+  low
+}
+
+enum MeetingStatus {
+  pending
+  transcribing
+  processing
+  complete
+  failed
+}
+
+enum InputType {
+  text
+  uploaded_audio
+  live_audio
+  manual
+}
+
+model Meeting {
+  id                String         @id @default(uuid())
+  title             String
+  host_name         String
+  description       String?
+  status            MeetingStatus  @default(pending)
+  input_type        InputType?
+  raw_transcript    String?        @db.Text
+  cleaned_transcript String?       @db.Text
+  tldr              String?        @db.Text
+  health_score      Float?
+  raw_file_path     String?
+  created_at        DateTime       @default(now())
+  processed_at      DateTime?
+  tasks             Task[]
+  decisions         Decision[]
+
+  @@map("meetings")
+}
+
+model Task {
+  id                String       @id @default(uuid())
+  meeting_id        String
+  employee_id       String?
+  title             String
+  description       String?      @db.Text
+  priority          Priority     @default(medium)
+  status            TaskStatus   @default(pending_review)
+  confidence_score  Float        @default(0)
+  assignee_name     String?
+  owner_emp_id      String?
+  owner_dept        String?
+  source_quote      String?      @db.Text
+  github_issue_url  String?
+  jira_issue_key    String?
+  created_at        DateTime     @default(now())
+  meeting           Meeting      @relation(fields: [meeting_id], references: [id])
+  employee          Employee?    @relation(fields: [employee_id], references: [id])
+
+  @@map("tasks")
+}
+
+model Decision {
+  id                String   @id @default(uuid())
+  meeting_id        String
+  title             String
+  description       String?  @db.Text
+  decided_by_name   String?
+  source_quote      String?  @db.Text
+  created_at        DateTime @default(now())
+  meeting           Meeting  @relation(fields: [meeting_id], references: [id])
+
+  @@map("decisions")
+}
+
+model Employee {
+  id                String   @id @default(uuid())
+  name              String
+  emp_id            String   @unique
+  email             String?  @unique
+  department        String?
+  github_username   String?
+  jira_account_id   String?
+  role              String?  @default("engineer")
+  avatar_url        String?
+  created_at        DateTime @default(now())
+  tasks             Task[]
+
+  @@map("employees")
 }

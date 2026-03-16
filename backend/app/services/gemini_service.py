@@ -1,16 +1,72 @@
 import json
-import google.generativeai as genai
+import asyncio
+from groq import Groq
 from ..config import settings
 from .transcription import clean_transcript
 
-def setup_gemini():
-    if not settings.GEMINI_API_KEY:
-        raise RuntimeError("GEMINI_API_KEY is missing")
-    genai.configure(api_key=settings.GEMINI_API_KEY)
-    return genai.GenerativeModel(settings.GEMINI_MODEL)
+def _run_groq_streaming_sync(prompt: str) -> str:
+    """
+    Synchronous function implementing the exact logic from the user.
+    Runs inside a thread executor to avoid blocking the event loop.
+    """
+    if not settings.GROQ_API_KEY:
+        raise RuntimeError("GROQ_API_KEY is missing from configuration")
+        
+    client = Groq(api_key=settings.GROQ_API_KEY.strip())
+    
+    # EXACT logic from user snippet
+    completion = client.chat.completions.create(
+        model="openai/gpt-oss-120b",
+        messages=[
+            {"role": "user", "content": prompt}
+        ],
+        temperature=1,
+        max_completion_tokens=8192,
+        top_p=1,
+        reasoning_effort="medium",
+        stream=True,
+        stop=None
+    )
+    
+    full_content = ""
+    for chunk in completion:
+        content = chunk.choices[0].delta.content or ""
+        full_content += content
+        print(content, end="", flush=True)
+        
+    return full_content
+
+def _run_groq_fallback_sync(prompt: str):
+    if not settings.GROQ_API_KEY:
+        raise RuntimeError("GROQ_API_KEY is missing from configuration")
+        
+    client = Groq(api_key=settings.GROQ_API_KEY.strip())
+    return client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[
+            {"role": "system", "content": "You are a specialized JSON meeting analyst. Output ONLY raw JSON."},
+            {"role": "user", "content": prompt}
+        ],
+        temperature=0.1,
+        response_format={"type": "json_object"}
+    )
 
 async def process_transcript_with_gemini(transcript: str, meeting_title: str, host_name: str):
+    """
+    Processes the meeting transcript using the premium Groq model (openai/gpt-oss-120b).
+    Uses the EXACT logic, parameters, and streaming requested by the user.
+    """
     cleaned_transcript = clean_transcript(transcript)
+    
+    # Check for empty transcript
+    if not cleaned_transcript.strip():
+        print("DEBUG: Empty transcript detected. Returning placeholder.")
+        return {
+            "tldr": "No tasks or decisions extracted due to empty transcript",
+            "health_score": 0,
+            "tasks": [],
+            "decisions": []
+        }
     
     system_prompt = f"""
 You are an expert meeting analyst for engineering teams.
@@ -73,73 +129,53 @@ Exact structure:
 
     prompt = f"{system_prompt}\n\nTRANSCRIPT:\n{cleaned_transcript}"
 
-    # --- PHASE 1: Try Gemini ---
     try:
-        model = setup_gemini()
-        response = await model.generate_content_async(prompt)
-        text = response.text.strip()
-        print("DEBUG: Analysis successful via Gemini")
-        return _parse_ai_json(text)
-    except Exception as e:
-        print(f"DEBUG: Gemini Analysis failed: {str(e)}. Falling back to Groq...")
-
-    # --- PHASE 2: Fallback to Groq ---
-    if not settings.GROQ_API_KEY:
-        raise RuntimeError("Both Gemini and Groq AI services are unavailable.")
-
-    import httpx
-    url = "https://api.groq.com/openai/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {settings.GROQ_API_KEY.strip()}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "model": settings.GROQ_MODEL or "llama-3.3-70b-versatile",
-        "messages": [
-            {"role": "system", "content": "You are a specialized JSON meeting analyst. Output ONLY raw JSON."},
-            {"role": "user", "content": prompt}
-        ],
-        "temperature": 0.1,
-        "response_format": {"type": "json_object"}
-    }
-
-    try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.post(url, headers=headers, json=payload)
-            resp.raise_for_status()
-            res_data = resp.json()
-            text = res_data["choices"][0]["message"]["content"].strip()
-            print("DEBUG: Analysis successful via Groq Fallback")
-            return _parse_ai_json(text)
+        # Run the synchronous user code in a separate thread so it doesn't block FastAPI
+        loop = asyncio.get_event_loop()
+        full_content = await loop.run_in_executor(None, _run_groq_streaming_sync, prompt)
+            
+        print("\nDEBUG: AI Analysis complete via Groq Streaming.")
+        return _parse_ai_json(full_content)
+        
     except Exception as groq_err:
-        print(f"DEBUG: Groq Analysis fallback failed: {str(groq_err)}")
-        return {
-            "tldr": f"AI Error: {str(groq_err)}",
-            "health_score": 0,
-            "tasks": [],
-            "decisions": []
-        }
+        print(f"\nDEBUG: Premium Groq Model failed: {str(groq_err)}")
+        # Simple fallback if the premium model is unavailable or errors out
+        try:
+            loop = asyncio.get_event_loop()
+            fallback_completion = await loop.run_in_executor(None, _run_groq_fallback_sync, prompt)
+            return _parse_ai_json(fallback_completion.choices[0].message.content.strip())
+        except Exception as e2:
+            print(f"DEBUG: All fallback models failed: {str(e2)}")
+            return {
+                "tldr": f"AI Extraction Error: {str(groq_err)}",
+                "health_score": 0,
+                "tasks": [],
+                "decisions": []
+            }
 
 def _parse_ai_json(text: str) -> dict:
     """Helper to clean and parse JSON from AI response"""
-    # Strip markdown fences if present
     text = text.strip()
+    # Strip markdown fences
     if text.startswith("```json"):
         text = text[7:]
     elif text.startswith("```"):
         text = text[3:]
     
-    if text.endswith("```"):
-        text = text[:-3]
+    if "```" in text:
+        text = text.split("```")[0]
     
     text = text.strip()
     
     try:
-        return json.loads(text)
+        data = json.loads(text)
+        if not isinstance(data.get("tasks"), list): data["tasks"] = []
+        if not isinstance(data.get("decisions"), list): data["decisions"] = []
+        return data
     except json.JSONDecodeError:
-        # Emergency backup: if it's really messy, just return empty
+        print(f"DEBUG: Failed to parse JSON. Raw start: {text[:100]}")
         return {
-            "tldr": "Post-processing error: invalid JSON from AI",
+            "tldr": "Parsing Error: The AI did not return a valid JSON structure.",
             "health_score": 0,
             "tasks": [],
             "decisions": []

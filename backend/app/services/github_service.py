@@ -83,7 +83,7 @@ async def create_github_issue(
     # However, if there's an exception before a response is received, this might be hit.
     return {"success": False, "error": "Unknown GitHub service error or network issue"}
 
-async def get_github_issue_status(issue_number: int, repo_owner: str, repo_name: str, token: str) -> str | None:
+async def get_github_issue_status(issue_number: int, repo_owner: str, repo_name: str, token: str) -> dict | None:
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.get(
             f"{GITHUB_API}/repos/{repo_owner}/{repo_name}/issues/{issue_number}",
@@ -91,8 +91,26 @@ async def get_github_issue_status(issue_number: int, repo_owner: str, repo_name:
         )
         if response.status_code == 200:
             data = response.json()
-            return data.get("state") # "open" or "closed"
+            state = data.get("state")
+            assignees = data.get("assignees", [])
+            
+            if state == "closed":
+                return {"state": "closed"}
+            elif state == "open" and len(assignees) > 0:
+                return {"state": "in_progress"}
+            else:
+                return {"state": "open"}
     return None
+
+async def update_github_issue_state(issue_number: int, repo_owner: str, repo_name: str, token: str, state: str) -> bool:
+    """Updates the state of a GitHub issue (e.g., 'open' or 'closed')."""
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.patch(
+            f"{GITHUB_API}/repos/{repo_owner}/{repo_name}/issues/{issue_number}",
+            headers=get_headers(token),
+            json={"state": state}
+        )
+        return response.status_code == 200
 
 async def check_duplicate_issue(task_title: str, repo_owner: str, repo_name: str, token: str) -> dict | None:
     async with httpx.AsyncClient(timeout=30.0) as client:
@@ -115,14 +133,17 @@ async def check_duplicate_issue(task_title: str, repo_owner: str, repo_name: str
     return None
 
 async def trigger_github_action(repo_owner: str, repo_name: str, token: str, workflow_id: str = "main.yml") -> dict:
-    """Trigger a GitHub Action workflow via workflow_dispatch"""
+    """Trigger a GitHub Action workflow via workflow_dispatch, trying common branch names"""
     async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.post(
-            f"{GITHUB_API}/repos/{repo_owner}/{repo_name}/actions/workflows/{workflow_id}/dispatches",
-            headers=get_headers(token),
-            json={"ref": "main"}
-        )
-        if response.status_code == 204:
-            return {"success": True, "message": f"Workflow {workflow_id} triggered successfully"}
-        else:
-            return {"success": False, "error": f"Failed to trigger workflow: {response.status_code}", "detail": response.text}
+        # Try 'main' first
+        for branch in ["main", "master"]:
+            response = await client.post(
+                f"{GITHUB_API}/repos/{repo_owner}/{repo_name}/actions/workflows/{workflow_id}/dispatches",
+                headers=get_headers(token),
+                json={"ref": branch}
+            )
+            if response.status_code == 204:
+                return {"success": True, "message": f"Workflow {workflow_id} triggered on branch '{branch}'"}
+            
+        # If both fail, return the last error
+        return {"success": False, "error": f"Failed to trigger workflow: {response.status_code}", "detail": response.text}

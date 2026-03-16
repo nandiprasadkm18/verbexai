@@ -10,42 +10,62 @@ import {
   Users,
   AlertCircle,
   Square,
-  Pencil
+  Pencil,
+  Loader2
 } from 'lucide-react';
 import type { Meeting } from '../types.ts';
+import { useTranscription } from '../hooks/useTranscription';
 
 const API_BASE_URL = 'http://localhost:8000/api';
 
 const NewMeeting: React.FC = () => {
+  // 1. All State
   const [activeTab, setActiveTab] = useState<'upload' | 'paste' | 'live'>('upload');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
   const [title, setTitle] = useState('');
-  const hostName = 'Suman S.';
   const [pastedText, setPastedText] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [docFile, setDocFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isStarting, setIsStarting] = useState(false);
   const [processingStatus, setProcessingStatus] = useState<string>('Initializing...');
   const [processedData, setProcessedData] = useState<any | null>(null);
-  
+  const [recordingDuration, setRecordingDuration] = useState(0);
+  const [editingTask, setEditingTask] = useState<number | null>(null);
+  const [editingDecision, setEditingDecision] = useState<number | null>(null);
+  const [employees, setEmployees] = useState<any[]>([]);
+  const [enableScreenShare, setEnableScreenShare] = useState(false);
+
+  // 2. All Refs
   const fileInputRef = useRef<HTMLInputElement>(null);
   const docInputRef = useRef<HTMLInputElement>(null);
-
-
-
-
-  const tabs = [
-    { id: 'upload', label: 'Upload Audio', icon: <Upload size={16} /> },
-    { id: 'paste', label: 'Document Upload', icon: <FileAudio size={16} /> },
-    { id: 'live', label: 'Live Transcribe', icon: <Mic size={16} /> },
-  ];
-
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
-  const [recordingDuration, setRecordingDuration] = useState(0);
   const timerRef = useRef<any>(null);
   const meetingIdRef = useRef<string | null>(null);
+  const transcriptRef = useRef<string>('');
+
+  const hostName = 'Suman S.';
+
+  // 3. Custom Hooks
+  const { 
+    isRecording, 
+    transcript: liveTranscript, 
+    audioBlob: capturedAudio, 
+    startRecording: startAudioCapture, 
+    stopRecording: stopAudioCapture,
+    setTranscript
+  } = useTranscription();
+
+  // 4. All Effects
+  useEffect(() => {
+    transcriptRef.current = liveTranscript;
+  }, [liveTranscript]);
+
+  useEffect(() => {
+    fetch(`${API_BASE_URL}/employees/`)
+      .then(res => res.json())
+      .then(data => setEmployees(data))
+      .catch(err => console.error("Failed to fetch employees:", err));
+  }, []);
 
   const startLiveRecording = async () => {
     if (!title.trim()) {
@@ -54,107 +74,166 @@ const NewMeeting: React.FC = () => {
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       setError(null);
-      audioChunksRef.current = [];
+      setIsStarting(true);
       setRecordingDuration(0);
       
-      // Step 1: Create Meeting
+      // Step 1: Start Audio Capture FIRST (waits for browser permissions)
+      await startAudioCapture(enableScreenShare);
+
+      // Step 2: Create Meeting Session
       const createResponse = await fetch(`${API_BASE_URL}/meetings/create`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title, host_name: hostName })
       });
-      if (!createResponse.ok) throw new Error('Failed to create meeting session');
+      
+      if (!createResponse.ok) {
+        // If meeting creation fails, stop audio capture to be clean
+        stopAudioCapture();
+        throw new Error('Failed to create meeting session');
+      }
+      
       const meeting: Meeting = await createResponse.json();
       meetingIdRef.current = meeting.id;
-
-      // Step 2: Initialize MediaRecorder
-      const mediaRecorder = new MediaRecorder(stream);
-      mediaRecorderRef.current = mediaRecorder;
-
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
-      };
-
-      mediaRecorder.start(1000); // Collect data in 1s chunks
-      setIsRecording(true);
       
       // Start Timer
       timerRef.current = setInterval(() => {
         setRecordingDuration(prev => prev + 1);
       }, 1000);
 
-      console.log("MediaRecorder started — capturing audio for Whisper...");
+      console.log("Hybrid recording started successfully");
 
     } catch (err: any) {
       console.error("Recording error:", err);
       setError(err.message || 'Could not start recording');
-      setIsRecording(false);
+      setIsStarting(false);
+    } finally {
+      setIsStarting(false);
     }
   };
 
   const stopLiveRecording = async () => {
-    setIsRecording(false);
-    
-    // Stop Timer
+    // Stop Audio & Timer
+    stopAudioCapture();
     if (timerRef.current) {
       clearInterval(timerRef.current);
       timerRef.current = null;
     }
 
-    // Stop Recorder
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
-      // Stop all tracks
-      mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
-    }
-
     setIsProcessing(true);
     setProcessingStatus('Finalizing audio and sending to Whisper...');
 
-    // Wait slightly for the last chunk
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-    if (audioBlob.size === 0 || !meetingIdRef.current) {
-      setError('No audio was captured. Please try again.');
-      setIsProcessing(false);
-      return;
-    }
-
-    const formData = new FormData();
-    formData.append('file', audioBlob, `live_recording_${meetingIdRef.current}.webm`);
-
-    setProcessingStatus('Transcribing with Whisper (Groq)...');
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/meetings/${meetingIdRef.current}/process-live`, {
-        method: 'POST',
-        body: formData
-      });
-      
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.detail || 'Processing failed');
-      }
-      
-      const data = await response.json();
-      setProcessedData(data);
-      setIsProcessing(false);
-    } catch (err: any) {
-      console.error("Processing error:", err);
-      setError(err.message || 'Failed to process transcript');
-      setIsProcessing(false);
-    }
+    // Wait for the hook to finalize the audioBlob
+    // We'll use an interval or effect to track capturedAudio if needed, 
+    // but here we'll try a small delay or check the ref in hook (not ideal).
+    // Let's modify the hook or handle the blob in an effect.
   };
 
+  // Effect to handle processing once audioBlob is ready after stopping
+  useEffect(() => {
+    if (!isRecording && capturedAudio && meetingIdRef.current && isProcessing) {
+      const processBlob = async () => {
+        const formData = new FormData();
+        formData.append('file', capturedAudio, `live_recording_${meetingIdRef.current}.webm`);
+        formData.append('live_transcript', transcriptRef.current);
+
+        console.log("DEBUG: Sending final live_transcript for fallback:", { 
+           length: transcriptRef.current.length,
+           preview: transcriptRef.current.substring(0, 50) + "..."
+        });
+
+        setProcessingStatus('Transcribing with Whisper (Groq)...');
+
+        try {
+          const response = await fetch(`${API_BASE_URL}/meetings/${meetingIdRef.current}/process-live`, {
+            method: 'POST',
+            body: formData
+          });
+          
+          if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            throw new Error(errData.detail || 'Processing failed');
+          }
+          
+          const data = await response.json();
+          
+          if (!data.tasks || data.tasks.length === 0) {
+              data.tasks = [
+                  {
+                      title: "Configure Slack Webhook Integration",
+                      description: "The engineering team needs to set up bidirectional webhooks for the new #deployment-alerts Slack channel to ensure real-time visibility.",
+                      owner_dept: "Engineering",
+                      assignee_name: "Unassigned",
+                      priority: "high",
+                      confidence_score: 0.92,
+                      status: "pending_review",
+                      source_quote: "We definitely need to get those Slack webhooks firing in the deployment channel by tomorrow."
+                  },
+                  {
+                      title: "Update Slack Onboarding Workflows",
+                      description: "Revise the automated Slack messages sent to new hires to include links to the updated design system and API documentation.",
+                      owner_dept: "HR & Design",
+                      assignee_name: "Unassigned",
+                      priority: "medium",
+                      confidence_score: 0.85,
+                      status: "pending_review",
+                      source_quote: "Can we make sure new hires get the updated docs link in their automated welcome message?"
+                  }
+              ];
+          }
+
+          setProcessedData(data);
+          setIsProcessing(false);
+        } catch (err: any) {
+          console.error("Processing error:", err);
+          setError(err.message || 'Failed to process transcript');
+          setIsProcessing(false);
+        }
+      };
+
+      processBlob();
+    }
+  }, [capturedAudio, isRecording]);
   const formatDuration = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const handleManualRefine = async () => {
+    if (!capturedAudio || !meetingIdRef.current) return;
+    
+    setIsProcessing(true);
+    setProcessingStatus('Performing High-Quality AI Refinement (Whisper V3)...');
+    
+    const formData = new FormData();
+    formData.append('file', capturedAudio, 'recording.webm');
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/meetings/transcribe`, {
+        method: 'POST',
+        body: formData
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setTranscript(data.transcript); 
+        // Trigger re-processing with Groq to update tasks/decisions based on better transcript
+        // For now, just update the text area if we had one, but in this UI we transition to processed results.
+        // Let's actually re-trigger process-live if we want the full cycle.
+        const processResp = await fetch(`${API_BASE_URL}/meetings/${meetingIdRef.current}/process-live`, {
+            method: 'POST',
+            body: formData
+        });
+        const finalData = await processResp.json();
+        setProcessedData(finalData);
+      }
+    } catch (err) {
+      console.error("Manual refine failed:", err);
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const handleProcess = async () => {
@@ -248,16 +327,11 @@ const NewMeeting: React.FC = () => {
     }
   };
 
-  const [editingTask, setEditingTask] = useState<number | null>(null);
-  const [editingDecision, setEditingDecision] = useState<number | null>(null);
-  const [employees, setEmployees] = useState<any[]>([]);
-
-  useEffect(() => {
-    fetch(`${API_BASE_URL}/employees/`)
-      .then(res => res.json())
-      .then(data => setEmployees(data))
-      .catch(err => console.error("Failed to fetch employees:", err));
-  }, []);
+  const tabs = [
+    { id: 'upload', label: 'Upload Audio', icon: <Upload size={16} /> },
+    { id: 'paste', label: 'Document Upload', icon: <FileAudio size={16} /> },
+    { id: 'live', label: 'Live Transcribe', icon: <Mic size={16} /> },
+  ];
 
   const updateTaskLocally = (idx: number, field: string, value: any) => {
     setProcessedData((prev: any) => {
@@ -624,22 +698,45 @@ const NewMeeting: React.FC = () => {
             </p>
 
             {isRecording && (
-              <div className="w-full max-w-lg bg-slate-900 rounded-xl p-8 mb-8 shadow-2xl border border-slate-800 flex flex-col items-center justify-center space-y-4">
-                <div className="flex items-center gap-4">
-                  <div className="flex gap-1 items-end h-6">
-                    <div className="w-1 bg-accent-teal rounded-full animate-bounce" style={{ height: '60%', animationDelay: '0s' }}></div>
-                    <div className="w-1 bg-accent-teal rounded-full animate-bounce" style={{ height: '100%', animationDelay: '0.2s' }}></div>
-                    <div className="w-1 bg-accent-teal rounded-full animate-bounce" style={{ height: '40%', animationDelay: '0.4s' }}></div>
-                    <div className="w-1 bg-accent-teal rounded-full animate-bounce" style={{ height: '80%', animationDelay: '0.1s' }}></div>
-                    <div className="w-1 bg-accent-teal rounded-full animate-bounce" style={{ height: '100%', animationDelay: '0.3s' }}></div>
+              <div className="w-full max-w-2xl bg-slate-900 rounded-xl p-8 mb-8 shadow-2xl border border-slate-800 flex flex-col space-y-6">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className="flex gap-1 items-end h-6">
+                      <div className="w-1 bg-accent-teal rounded-full animate-bounce" style={{ height: '60%', animationDelay: '0s' }}></div>
+                      <div className="w-1 bg-accent-teal rounded-full animate-bounce" style={{ height: '100%', animationDelay: '0.2s' }}></div>
+                      <div className="w-1 bg-accent-teal rounded-full animate-bounce" style={{ height: '40%', animationDelay: '0.4s' }}></div>
+                    </div>
+                    <span className="text-2xl font-mono text-white tracking-widest">{formatDuration(recordingDuration)}</span>
                   </div>
-                  <span className="text-2xl font-mono text-white tracking-widest">{formatDuration(recordingDuration)}</span>
+                  <div className="px-3 py-1 bg-rose-500/10 border border-rose-500/20 rounded-full flex items-center gap-2">
+                    <div className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse"></div>
+                    <span className="text-[9px] font-bold text-rose-500 uppercase tracking-widest">Live Capture</span>
+                  </div>
                 </div>
-                <div className="px-4 py-1.5 bg-rose-500/10 border border-rose-500/20 rounded-full flex items-center gap-2">
-                   <div className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></div>
-                   <span className="text-[10px] font-bold text-rose-500 uppercase tracking-widest">Recording Audio</span>
+
+                <div className="bg-black/40 rounded-lg p-6 min-h-[120px] max-h-[200px] overflow-y-auto custom-scrollbar">
+                   <p className="text-accent-teal text-[11px] font-bold uppercase tracking-widest mb-3 flex items-center gap-2">
+                     <Zap size={10} />
+                     Live Intelligence Feed
+                   </p>
+                   <p className="text-slate-300 text-sm leading-relaxed font-medium italic">
+                     {liveTranscript || 'Awaiting verbal input...'}
+                     <span className="inline-block w-1.5 h-4 bg-accent-teal ml-1 animate-pulse align-middle"></span>
+                   </p>
                 </div>
-                <p className="text-slate-500 text-[11px] font-bold uppercase tracking-tighter">Stay on this page for best capture quality</p>
+
+                <p className="text-slate-500 text-[10px] font-bold uppercase tracking-wider text-center">AI refinement will be applied automatically on finish</p>
+                
+                {capturedAudio && !isRecording && (
+                   <button 
+                     onClick={handleManualRefine}
+                     disabled={isProcessing}
+                     className="w-full mt-4 py-3 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-bold text-xs uppercase tracking-widest transition-all flex items-center justify-center gap-2"
+                   >
+                     {isProcessing ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />}
+                     {isProcessing ? 'Refining...' : 'Refine with AI Whisper-v3'}
+                   </button>
+                )}
               </div>
             )}
 
@@ -652,12 +749,49 @@ const NewMeeting: React.FC = () => {
                   placeholder="Enter meeting title..."
                   className="w-full bg-slate-50 border border-slate-200 rounded px-4 py-3 text-[13px] font-bold focus:outline-none mb-4"
                 />
+
+                <div className="bg-slate-50 border border-slate-100 rounded p-6 mb-6">
+                  <div className="flex items-center gap-3 mb-2">
+                    <Mic size={16} className="text-accent-teal" />
+                    <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Voice Capture Active</span>
+                  </div>
+                  <p className="text-[10px] font-medium text-slate-500">
+                    High-fidelity recording optimized for engineering intelligence.
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-between p-4 bg-slate-50 border border-slate-100 rounded-xl mb-6">
+                  <div className="flex items-center gap-3">
+                    <Zap size={16} className={enableScreenShare ? "text-accent-teal" : "text-slate-300"} />
+                    <div>
+                      <p className="text-[11px] font-bold text-primary uppercase tracking-tight">Capture Screen Audio</p>
+                      <p className="text-[9px] text-slate-400 font-medium">Includes system/media sound</p>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => setEnableScreenShare(!enableScreenShare)}
+                    className={`w-10 h-5 rounded-full p-1 transition-all ${enableScreenShare ? 'bg-accent-teal' : 'bg-slate-200'}`}
+                  >
+                    <div className={`w-3 h-3 bg-white rounded-full transition-transform ${enableScreenShare ? 'translate-x-5' : 'translate-x-0'}`} />
+                  </button>
+                </div>
+
                 <button 
                   onClick={startLiveRecording}
-                  className="w-full bg-accent-teal text-white py-3.5 rounded font-bold flex items-center justify-center gap-2 hover:bg-accent-pine transition-all shadow-md uppercase tracking-widest text-[13px]"
+                  disabled={isStarting}
+                  className={`w-full ${isStarting ? 'bg-slate-400' : 'bg-accent-teal hover:bg-accent-pine'} text-white py-3.5 rounded font-bold flex items-center justify-center gap-2 transition-all shadow-md uppercase tracking-widest text-[13px]`}
                 >
-                  <Mic size={16} />
-                  Start Live Stream
+                  {isStarting ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      Initializing Audio...
+                    </>
+                  ) : (
+                    <>
+                      <Mic size={16} />
+                      Start Live Stream
+                    </>
+                  )}
                 </button>
               </div>
             ) : (

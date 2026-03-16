@@ -37,7 +37,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, onPageChange, isCollapsed
     <aside className={`fixed left-0 top-0 h-screen bg-white transition-all duration-300 flex flex-col z-50 shadow-[4px_0_24px_-12px_rgba(0,0,0,0.05)] border-r border-slate-200/60 ${isCollapsed ? 'w-20' : 'w-[240px]'}`}>
       <div className={`p-6 flex items-center justify-between transition-all ${isCollapsed ? 'flex-col gap-4 px-2' : ''}`}>
         <div className={`transition-opacity duration-300 ${isCollapsed ? 'opacity-0 h-0 overflow-hidden' : 'opacity-100'}`}>
-          <h1 className="font-serif text-2xl text-primary leading-none font-bold">MeetSync</h1>
+          <h1 className="font-serif text-2xl text-primary leading-none font-bold">Verbex</h1>
           <p className="font-sans text-[10px] font-semibold uppercase tracking-widest text-slate-400 mt-1.5">Enterprise Data</p>
         </div>
         <button 

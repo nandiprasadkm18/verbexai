@@ -1,0 +1,29 @@
+﻿Triggering push for meeting: 12345tgfv  (60fbef73-d7ec-41a3-a77b-62d29ac89569)
+Checking status 'approved' in DB via Prisma...
+Prisma found 8 approved tasks for this meeting.
+
+Push Results (Total: 8):
+Task 1:
+  GitHub: {'success': False, 'duplicate': True, 'existing_url': 'https://github.com/sumans-19/DSA-CODE/issues/2', 'message': 'Issue already exists: #2'}
+  Jira: {'success': False, 'error': 'Jira API error 400', 'detail': '{"errorMessages":[],"errors":{"assignee":"Specify a valid value for assignee"}}'}
+Task 2:
+  GitHub: {'success': False, 'duplicate': True, 'existing_url': 'https://github.com/sumans-19/DSA-CODE/issues/3', 'message': 'Issue already exists: #3'}
+  Jira: {'success': False, 'error': 'Jira API error 400', 'detail': '{"errorMessages":[],"errors":{"assignee":"Specify a valid value for assignee"}}'}
+Task 3:
+  GitHub: {'success': False, 'duplicate': True, 'existing_url': 'https://github.com/sumans-19/DSA-CODE/issues/5', 'message': 'Issue already exists: #5'}
+  Jira: {'success': False, 'error': 'Jira API error 400', 'detail': '{"errorMessages":[],"errors":{"assignee":"Specify a valid value for assignee"}}'}
+Task 4:
+  GitHub: {'success': False, 'duplicate': True, 'existing_url': 'https://github.com/sumans-19/DSA-CODE/issues/4', 'message': 'Issue already exists: #4'}
+  Jira: {'success': False, 'error': 'Jira API error 400', 'detail': '{"errorMessages":[],"errors":{"assignee":"Specify a valid value for assignee"}}'}
+Task 5:
+  GitHub: {'success': False, 'duplicate': True, 'existing_url': 'https://github.com/sumans-19/DSA-CODE/issues/6', 'message': 'Issue already exists: #6'}
+  Jira: {'success': False, 'error': 'Jira API error 400', 'detail': '{"errorMessages":[],"errors":{"assignee":"Specify a valid value for assignee"}}'}
+Task 6:
+  GitHub: {'success': False, 'duplicate': True, 'existing_url': 'https://github.com/sumans-19/DSA-CODE/issues/7', 'message': 'Issue already exists: #7'}
+  Jira: {'success': False, 'error': 'Jira API error 400', 'detail': '{"errorMessages":[],"errors":{"assignee":"Specify a valid value for assignee"}}'}
+Task 7:
+  GitHub: {'success': False, 'duplicate': True, 'existing_url': 'https://github.com/sumans-19/DSA-CODE/issues/9', 'message': 'Issue already exists: #9'}
+  Jira: {'success': False, 'error': 'Jira API error 400', 'detail': '{"errorMessages":[],"errors":{"assignee":"Specify a valid value for assignee"}}'}
+Task 8:
+  GitHub: {'success': False, 'duplicate': True, 'existing_url': 'https://github.com/sumans-19/DSA-CODE/issues/8', 'message': 'Issue already exists: #8'}
+  Jira: {'success': False, 'error': 'Jira API error 400', 'detail': '{"errorMessages":[],"errors":{"assignee":"Specify a valid value for assignee"}}'}

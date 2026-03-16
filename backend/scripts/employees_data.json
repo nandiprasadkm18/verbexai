@@ -1,0 +1,50 @@
+[
+  {
+    "id": "db5013bc-dccc-46bf-86dc-99decc4a642f",
+    "name": "Suman S",
+    "emp_id": "EMP001",
+    "department": "Engineering",
+    "github_username": "sumans-19",
+    "created_at": "2026-03-14 05:36:58.797000",
+    "email": "sumanshanthakumar@gmail.com",
+    "jira_account_id": "sumanshanthakumar",
+    "role": "engineer",
+    "avatar_url": null
+  },
+  {
+    "id": "ed11edb6-7986-4563-9c99-3a5ae72732b4",
+    "name": "Likhith Gowda M",
+    "emp_id": "EMP002",
+    "department": "Engineering",
+    "github_username": "likithgowdam10",
+    "created_at": "2026-03-14 05:36:58.799000",
+    "email": "likithgowdam10@gmail.com",
+    "jira_account_id": "likithgowdam10",
+    "role": "engineer",
+    "avatar_url": null
+  },
+  {
+    "id": "99ba8bdb-fe54-48c6-b607-053e9da53b65",
+    "name": "J Hemanth",
+    "emp_id": "EMP003",
+    "department": "Engineering",
+    "github_username": "hemanthj79",
+    "created_at": "2026-03-14 05:36:58.800000",
+    "email": "jhemanth4852@gmail.com",
+    "jira_account_id": "jhemanth4852",
+    "role": "engineer",
+    "avatar_url": null
+  },
+  {
+    "id": "3cd5f9cc-acc0-4592-bfb8-3fe6a80ebc42",
+    "name": "Nandi Prasad K M",
+    "emp_id": "EMP004",
+    "department": "Engineering",
+    "github_username": "nandiprasadkm18",
+    "created_at": "2026-03-14 05:36:58.801000",
+    "email": "nandiprasadkm18@gmail.com",
+    "jira_account_id": "nandiprasadkm18",
+    "role": "engineer",
+    "avatar_url": null
+  }
+]

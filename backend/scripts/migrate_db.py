@@ -31,16 +31,17 @@ async def migrate_and_seed():
         await conn.execute("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS github_issue_url TEXT")
         await conn.execute("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS jira_issue_key TEXT")
         
-        # 3. Handle TaskStatus enum (if pushed is missing)
-        # Note: In Postgres, adding to an enum inside a transaction is tricky, 
-        # but adding a value is usually fine if not in a transaction or handled carefully.
-        try:
-            await conn.execute("ALTER TYPE \"TaskStatus\" ADD VALUE 'pushed'")
-        except Exception as e:
-            if "already exists" in str(e):
-                print("TaskStatus 'pushed' already exists.")
-            else:
-                print(f"Non-critical TaskStatus update error: {str(e)}")
+        # 3. Handle TaskStatus enum
+        new_statuses = ['in_progress', 'completed', 'failed', 'pushed']
+        for status in new_statuses:
+            try:
+                await conn.execute(f"ALTER TYPE \"TaskStatus\" ADD VALUE '{status}'")
+                print(f"Added TaskStatus '{status}'")
+            except Exception as e:
+                if "already exists" in str(e):
+                    pass
+                else:
+                    print(f"Non-critical TaskStatus update error for {status}: {str(e)}")
 
         print("Seeding master employee...")
         github_user = os.getenv("GITHUB_REPO_OWNER")

@@ -38,72 +38,84 @@ async def push_task_to_integrations(
     # If no employee is currently linked to the task, try to find the "Master Employee"
     target_employee = task.employee
     if not target_employee:
-        # Use raw selection to bypass potentially outdated client models
+        # Use first employee just to get credentials (API Tokens)
         employees = await db.query_raw(
             "SELECT * FROM employees WHERE github_username IS NOT NULL OR jira_account_id IS NOT NULL LIMIT 1"
         )
         if employees:
-            # Prisma query_raw returns a list of dicts
             emp_data = employees[0]
-            # Link the task to this employee for future reference
-            await db.task.update(
-                where={"id": task_id},
-                data={"employee_id": emp_data["id"]}
-            )
+            # DO NOT overwrite task's employee_id in DB!
+            # DO NOT use their github_user or jira_id for assignment!
+            github_user = None
+            jira_id = None
+        else:
+            github_user = None
+            jira_id = None
+    else:
+        # Fetch employee details via raw SQL to ensure we get all columns
+        emp_records = await db.query_raw(
+            "SELECT * FROM employees WHERE id = $1",
+            target_employee.id
+        )
+        if emp_records:
+            emp_data = emp_records[0]
             github_user = emp_data.get("github_username")
             jira_id = emp_data.get("jira_account_id")
         else:
             github_user = None
             jira_id = None
-    else:
-        github_user = target_employee.github_username
-        jira_id = target_employee.jira_account_id
 
     if push_github:
-        duplicate = await check_duplicate_issue(task.title)
-        if duplicate:
-            results["github"] = {
-                "success": False,
-                "duplicate": True,
-                "existing_url": duplicate["issue_url"],
-                "message": f"Issue already exists: #{duplicate['issue_number']}",
-            }
-        else:
-            github_result = await create_github_issue(
-                task_title=task.title,
-                task_description=task.description or "",
-                source_quote=task.source_quote or "",
-                meeting_title=meeting_title,
-                priority=priority_str,
-                github_username=github_user,
-                assignee_name=task.assignee_name,
+        # Removed the aggressive check_duplicate_issue logic that blocked similar task titles.
+        github_result = await create_github_issue(
+            task_title=task.title,
+            task_description=task.description or "",
+            source_quote=task.source_quote or "",
+            meeting_title=meeting_title,
+            priority=priority_str,
+            github_username=github_user,
+            assignee_name=task.assignee_name,
+            repo_owner=creds["gh_owner"],
+            repo_name=creds["gh_repo"],
+            token=creds["gh_token"],
+        )
+        if github_result["success"]:
+            # trigger action
+            await trigger_github_action(
                 repo_owner=creds["gh_owner"],
                 repo_name=creds["gh_repo"],
-                token=creds["gh_token"],
+                token=creds["gh_token"]
             )
-            if github_result["success"]:
-                # Also trigger a GitHub Action (e.g. to notify or start a CI job)
-                await trigger_github_action(
-                    repo_owner=creds["gh_owner"],
-                    repo_name=creds["gh_repo"],
-                    token=creds["gh_token"]
-                )
-            if github_result["success"]:
-                # Use execute_raw for new columns to avoid Prisma Client model mismatches
-                await db.execute_raw(
-                    "UPDATE tasks SET github_issue_url = $1, status = 'approved' WHERE id = $2",
-                    github_result["issue_url"], task_id
-                )
-            results["github"] = github_result
+            await db.task.update(
+                where={"id": task_id},
+                data={
+                    "github_issue_url": github_result["issue_url"], 
+                    "status": "approved"
+                }
+            )
+        results["github"] = github_result
 
     if push_jira:
+        # Resolve Jira Account ID if needed
+        real_jira_id = jira_id
+        if jira_id and "@" in jira_id or (jira_id and len(jira_id) < 20): # Not a UUID
+            from .jira_service import get_jira_account_id
+            resolved_id = await get_jira_account_id(
+                email=emp_data.get("email") or jira_id,
+                jira_domain=creds["jira_domain"],
+                jira_email=creds["jira_email"],
+                jira_token=creds["jira_token"]
+            )
+            if resolved_id:
+                real_jira_id = resolved_id
+        
         jira_result = await create_jira_ticket(
             task_title=task.title,
             task_description=task.description or "",
             source_quote=task.source_quote or "",
             meeting_title=meeting_title,
             priority=priority_str,
-            jira_account_id=jira_id,
+            jira_account_id=real_jira_id,
             assignee_name=task.assignee_name,
             jira_domain=creds["jira_domain"],
             jira_email=creds["jira_email"],
@@ -111,10 +123,12 @@ async def push_task_to_integrations(
             jira_project_key=creds["jira_project"],
         )
         if jira_result["success"]:
-            # Use execute_raw for new columns
-            await db.execute_raw(
-                "UPDATE tasks SET jira_issue_key = $1, status = 'approved' WHERE id = $2",
-                jira_result["issue_key"], task_id
+            await db.task.update(
+                where={"id": task_id},
+                data={
+                    "jira_issue_key": jira_result["issue_key"], 
+                    "status": "approved"
+                }
             )
         results["jira"] = jira_result
 
@@ -133,54 +147,76 @@ async def sync_all_task_statuses(meeting_id: str, db: Prisma):
         task_id = task_data["id"]
         github_issue_url = task_data.get("github_issue_url")
         jira_issue_key = task_data.get("jira_issue_key")
-        emp_id = task_data.get("owner_emp_id") or "EMP001" # Or join with employee table
+        emp_id = task_data.get("owner_emp_id") or "EMP001"
         
         # Fetch credentials for this specific employee
         creds = settings.get_employee_credentials(emp_id)
         
-        updates = {}
+        new_status = None
         
         # 1. Sync GitHub Status
         if github_issue_url:
             try:
                 issue_num = int(github_issue_url.split("/")[-1])
-                github_state = await get_github_issue_status(
+                github_data = await get_github_issue_status(
                     issue_number=issue_num,
                     repo_owner=creds["gh_owner"],
                     repo_name=creds["gh_repo"],
                     token=creds["gh_token"]
                 )
+                github_state = github_data.get("state") if github_data else None
+                
                 if github_state == "closed":
-                    updates["status"] = "discarded"
-            except:
-                pass
+                    new_status = "completed"
+                elif github_state == "in_progress":
+                    new_status = "in_progress"
+            except Exception as e:
+                print(f"GH SYNC ERR for {task_id}: {e}")
 
         # 2. Sync Jira Status
         if jira_issue_key:
-            jira_status = await get_jira_ticket_status(
-                issue_key=jira_issue_key,
-                jira_domain=creds["jira_domain"],
-                jira_email=creds["jira_email"],
-                jira_token=creds["jira_token"]
-            )
-            if jira_status in ["Done", "Resolved", "Closed", "Complete"]:
-                updates["status"] = "discarded"
+            try:
+                jira_status = await get_jira_ticket_status(
+                    issue_key=jira_issue_key,
+                    jira_domain=creds["jira_domain"],
+                    jira_email=creds["jira_email"],
+                    jira_token=creds["jira_token"]
+                )
+                if jira_status in ["Done", "Resolved", "Closed", "Complete"]:
+                    new_status = "completed"
+                elif jira_status in ["In Progress", "In Dev", "In Review"]:
+                    new_status = "in_progress"
+                elif jira_status in ["To Do", "Backlog", "Open"]:
+                    new_status = "approved"
+            except Exception as e:
+                print(f"JIRA SYNC ERR for {task_id}: {e}")
 
-        if updates:
-            # Use execute_raw for status update to be safe
-            await db.execute_raw(
-                "UPDATE tasks SET status = $1 WHERE id = $2",
-                updates["status"], task_id
+        if new_status and new_status != task_data.get("status"):
+            await db.task.update(
+                where={"id": task_id},
+                data={"status": new_status}
             )
-            sync_results.append({"task_id": task_id, "updates": updates})
+            sync_results.append({"task_id": task_id, "status": new_status})
+
+    # Recalculate and update meeting health score after sync
+    if sync_results:
+        all_tasks = await db.task.find_many(where={"meeting_id": meeting_id})
+        if all_tasks:
+            approved_completed = len([t for t in all_tasks if t.status in ["approved", "completed"]])
+            new_health = round((approved_completed / len(all_tasks)) * 100)
+            await db.meeting.update(
+                where={"id": meeting_id},
+                data={"health_score": float(new_health)}
+            )
 
     return sync_results
-
 async def push_all_approved_tasks(meeting_id: str, db: Prisma) -> list:
     tasks = await db.task.find_many(
         where={
             "meeting_id": meeting_id,
-            "status": "approved",
+            "status": {
+                "in": ["approved", "pending_review"]
+            }
         }
     )
 

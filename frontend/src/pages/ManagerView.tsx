@@ -23,14 +23,16 @@ const ManagerView: React.FC = () => {
   const { data: recentMeetings } = useFetch<Meeting[]>('/meetings');
   const { data: speakers } = useFetch<any[]>('/speakers');
 
-  const latestHealth = recentMeetings && recentMeetings.length > 0 ? recentMeetings[0].health_score : 0;
+  const avgHealth = recentMeetings && recentMeetings.length > 0 
+    ? Math.round(recentMeetings.reduce((acc, m) => acc + (m.health_score || 0), 0) / recentMeetings.length)
+    : 0;
 
   const statItems = [
     { label: 'Total Meetings', value: stats?.meetings?.value || '0', delta: stats?.meetings?.delta || '0' },
     { label: 'Tasks Created', value: stats?.tasks?.value || '0', delta: stats?.tasks?.delta || '0' },
     { label: 'Decisions Logged', value: stats?.decisions?.value || '0', delta: stats?.decisions?.delta || '0' },
     { label: 'Stale Tasks', value: stats?.stale_tasks?.value || '0', delta: stats?.stale_tasks?.delta || '0' },
-    { label: 'Avg Health', value: `${latestHealth || 0}%`, delta: stats?.confidence?.delta || '0' },
+    { label: 'Avg Health', value: `${avgHealth}%`, delta: stats?.confidence?.delta || '0' },
   ];
 
   return (
@@ -69,8 +71,11 @@ const ManagerView: React.FC = () => {
                       <p className="text-[14px] font-bold text-primary">{meeting.decision_count || 0}</p>
                     </div>
                     <div className="w-10 h-10 rounded-full border-2 border-slate-100 p-0.5 ml-2">
-                       <div className="w-full h-full rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center text-[11px] font-bold">
-                         {meeting.health_score || 0}
+                       <div className={`w-full h-full rounded-full flex items-center justify-center text-[10px] font-bold ${
+                         (meeting.health_score || 0) > 80 ? 'bg-emerald-50 text-emerald-600' : 
+                         (meeting.health_score || 0) > 40 ? 'bg-amber-50 text-amber-600' : 'bg-rose-50 text-rose-600'
+                       }`}>
+                         {Math.round(meeting.health_score || 0)}%
                        </div>
                     </div>
                   </div>
@@ -182,7 +187,7 @@ const ManagerView: React.FC = () => {
           <div className="corporate-card p-6">
              <h3 className="font-serif text-lg font-bold text-primary mb-5 relative">Ownership Map</h3>
              <div className="space-y-5 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
-               {speakers?.map((person, i) => (
+               {speakers?.map((person) => (
                  <div key={person.id}>
                    <div className="flex justify-between items-end mb-1.5">
                      <div>

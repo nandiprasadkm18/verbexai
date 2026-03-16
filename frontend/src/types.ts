@@ -37,6 +37,8 @@ export interface Meeting {
   processed_at?: string;
   task_count?: number;
   decision_count?: number;
+  tasks?: Task[];
+  decisions?: Decision[];
 }
 
 export interface Task {
@@ -45,7 +47,7 @@ export interface Task {
   title: string;
   description?: string;
   priority: 'high' | 'medium' | 'low';
-  status: 'pending_review' | 'approved' | 'discarded';
+  status: 'pending' | 'approved' | 'in_progress' | 'completed' | 'failed' | 'pending_review' | 'discarded';
   confidence_score: number;
   assignee_name?: string;
   owner_emp_id?: string;
@@ -53,6 +55,11 @@ export interface Task {
   employee_id?: string;
   source_quote?: string;
   created_at: string;
+  // Specific to StaleTasks
+  days_overdue?: number;
+  mentioned_in_meeting_id?: string;
+  assignee_color?: string;
+  assignee_initials?: string;
 }
 
 export interface Decision {

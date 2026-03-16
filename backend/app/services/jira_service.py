@@ -85,7 +85,7 @@ async def create_jira_ticket(
 
     payload = {
         "fields": {
-            "project": {"key": settings.JIRA_PROJECT_KEY},
+            "project": {"key": jira_project_key},
             "summary": task_title,
             "description": description_doc,
             "issuetype": {"name": "Task"},
