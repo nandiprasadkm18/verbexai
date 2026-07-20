@@ -126,7 +126,7 @@ Create a `backend/.env` file with the following variables:
 
 | Key | Description | Example / Required |
 |:---|:---|:---|
-| `DATABASE_URL` | PostgreSQL connection string | `postgresql://postgres:nandi@localhost:5432/verbexai` |
+| `DATABASE_URL` | PostgreSQL connection string | `postgresql://username:password@localhost:5432/dbname` |
 | `GROQ_API_KEY` | Your Groq Cloud API credentials | `gsk_...` |
 | `GITHUB_TOKEN` | Global GitHub personal access token | `ghp_...` |
 | `GITHUB_REPO_OWNER`| Target repository owner | `nandiprasadkm18` |
