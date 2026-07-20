@@ -18,6 +18,13 @@
 
 Verbex sits at the intersection of team collaboration and issue tracking. By leveraging high-performance large language models and whisper-fast transcription, it listens to your sync meetings, analyzes conversations, extracts tasks and decisions, and maps them directly to your team members' engineering backlogs on **GitHub** and **Jira**.
 
+## 🛠️ Tech Stack
+
+- 🖥️ **Frontend**: React 19, TypeScript, Vite 6, Tailwind CSS v4, Lucide React
+- ⚙️ **Backend**: FastAPI, Python 3.12, Uvicorn, Prisma Client Python
+- 🗄️ **Database**: PostgreSQL (Local relational database managed via Prisma ORM)
+- 🤖 **AI Models**: Groq Whisper Large V3-Turbo (Audio Transcription), Groq LLaMA 3.3 (Summary & Action Items Extraction)
+
 ---
 
 ## 🏗️ Architecture
