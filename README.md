@@ -124,17 +124,17 @@ npm run dev
 
 Create a `backend/.env` file with the following variables:
 
-| Key | Description | Example / Required |
-|:---|:---|:---|
-| `DATABASE_URL` | PostgreSQL connection string | `postgresql://username:password@localhost:5432/dbname` |
-| `GROQ_API_KEY` | Your Groq Cloud API credentials | `gsk_...` |
-| `GITHUB_TOKEN` | Global GitHub personal access token | `ghp_...` |
-| `GITHUB_REPO_OWNER`| Target repository owner | `nandiprasadkm18` |
-| `GITHUB_REPO_NAME` | Target repository name | `verbexai` |
-| `JIRA_EMAIL` | Global Jira account email | `you@email.com` |
-| `JIRA_API_TOKEN` | Global Jira developer API token | `ATATT...` |
-| `JIRA_DOMAIN` | Target Jira workspace subdomain | `yourcompany.atlassian.net` |
-| `JIRA_PROJECT_KEY` | Jira project key prefix | `SCRUM` |
+| Key | Description |
+|:---|:---|
+| `DATABASE_URL` | PostgreSQL connection string |
+| `GROQ_API_KEY` | Your Groq Cloud API credentials |
+| `GITHUB_TOKEN` | Global GitHub personal access token |
+| `GITHUB_REPO_OWNER`| Target repository owner |
+| `GITHUB_REPO_NAME` | Target repository name |
+| `JIRA_EMAIL` | Global Jira account email |
+| `JIRA_API_TOKEN` | Global Jira developer API token |
+| `JIRA_DOMAIN` | Target Jira workspace subdomain |
+| `JIRA_PROJECT_KEY` | Jira project key prefix |
 
 ---
 
