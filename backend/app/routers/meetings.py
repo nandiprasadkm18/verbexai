@@ -15,7 +15,7 @@ from ..database import get_db
 from ..schemas.meeting import MeetingCreate, Meeting as MeetingSchema, MeetingWithResults
 from ..schemas.task import Task as TaskSchema
 from ..schemas.decision import Decision as DecisionSchema
-from ..services.gemini_service import process_transcript_with_gemini
+from ..services.analysis_service import process_transcript_with_groq
 from ..services.transcription import transcribe_audio_file, clean_transcript
 from ..services.audio_service import save_audio_file
 from ..services.integration_service import push_task_to_integrations, push_all_approved_tasks
@@ -217,8 +217,8 @@ async def upload_text(meeting_id: str, file: UploadFile = File(...), db: Prisma 
             }
         )
         
-        # AI Processing with Gemini
-        ai_data = await process_transcript_with_gemini(content, meeting.title, meeting.host_name)
+        # AI Processing with Groq
+        ai_data = await process_transcript_with_groq(content, meeting.title, meeting.host_name)
         
         # Save Tasks & Decisions
         await save_tasks_and_decisions(meeting_id, ai_data, db)
@@ -286,8 +286,8 @@ async def upload_audio(meeting_id: str, file: UploadFile = File(...), db: Prisma
             }
         )
         
-        # Step 4 — Process with Gemini
-        ai_data = await process_transcript_with_gemini(cleaned, meeting.title, meeting.host_name)
+        # Step 4 — Process with Groq
+        ai_data = await process_transcript_with_groq(cleaned, meeting.title, meeting.host_name)
         await save_tasks_and_decisions(meeting_id, ai_data, db)
         
         try:
@@ -372,8 +372,8 @@ async def process_live_transcript(
             }
         )
         
-        # Step 3: Process with Gemini (Groq Premium)
-        ai_data = await process_transcript_with_gemini(cleaned, meeting.title, meeting.host_name)
+        # Step 3: Process with Groq
+        ai_data = await process_transcript_with_groq(cleaned, meeting.title, meeting.host_name)
         await save_tasks_and_decisions(meeting_id, ai_data, db)
         
         health_score = float(ai_data.get("health_score", 0))
@@ -498,12 +498,51 @@ async def get_all_decisions(db: Prisma = Depends(get_db)):
 
 @router.get("/meetings/stats")
 async def get_stats(db: Prisma = Depends(get_db)):
+    from datetime import datetime, timedelta
     total_meetings = await db.meeting.count()
     total_tasks = await db.task.count()
     total_decisions = await db.decision.count()
-    stale_tasks_count = 2 # Hardcoded to match the mock data in /stale-tasks
     
-    # Calculate dynamic intelligence metrics
+    # Query actual stale tasks
+    stale_threshold = datetime.now() - timedelta(days=7)
+    stale_tasks_count = await db.task.count(
+        where={
+            "created_at": {
+                "lt": stale_threshold
+            },
+            "status": {
+                "in": ["approved", "pending_review", "in_progress"]
+            }
+        }
+    )
+    
+    # Dynamic calculation of deltas (compared to previous 7 days)
+    now = datetime.now()
+    last_7_days = now - timedelta(days=7)
+    prev_7_days = now - timedelta(days=14)
+    
+    meetings_last_7 = await db.meeting.count(where={"created_at": {"gte": last_7_days}})
+    meetings_prev_7 = await db.meeting.count(where={"created_at": {"gte": prev_7_days, "lt": last_7_days}})
+    if meetings_prev_7 > 0:
+        meetings_delta = f"{round(((meetings_last_7 - meetings_prev_7) / meetings_prev_7) * 100):+}%"
+    else:
+        meetings_delta = f"+{meetings_last_7 * 100}%" if meetings_last_7 > 0 else "+0%"
+        
+    tasks_last_7 = await db.task.count(where={"created_at": {"gte": last_7_days}})
+    tasks_prev_7 = await db.task.count(where={"created_at": {"gte": prev_7_days, "lt": last_7_days}})
+    if tasks_prev_7 > 0:
+        tasks_delta = f"{round(((tasks_last_7 - tasks_prev_7) / tasks_prev_7) * 100):+}%"
+    else:
+        tasks_delta = f"+{tasks_last_7 * 100}%" if tasks_last_7 > 0 else "+0%"
+
+    decisions_last_7 = await db.decision.count(where={"created_at": {"gte": last_7_days}})
+    decisions_prev_7 = await db.decision.count(where={"created_at": {"gte": prev_7_days, "lt": last_7_days}})
+    if decisions_prev_7 > 0:
+        decisions_delta = f"{round(((decisions_last_7 - decisions_prev_7) / decisions_prev_7) * 100):+}%"
+    else:
+        decisions_delta = f"+{decisions_last_7 * 100}%" if decisions_last_7 > 0 else "+0%"
+        
+    # Calculate precision (average confidence score)
     all_tasks = await db.task.find_many()
     precision = 94.2 # Base baseline
     if all_tasks:
@@ -511,56 +550,99 @@ async def get_stats(db: Prisma = Depends(get_db)):
         if scores:
             precision = round((sum(scores) / len(scores)) * 100, 1)
 
+    # Confidence trend from last 7 meetings
+    recent_meetings = await db.meeting.find_many(
+        order={"created_at": "desc"},
+        take=7,
+        include={"tasks": True}
+    )
+    recent_meetings.reverse() # chronological order
+    trend = []
+    for m in recent_meetings:
+        if m.tasks:
+            scores = [t.confidence_score for t in m.tasks if t.confidence_score is not None]
+            if scores:
+                trend.append(round((sum(scores) / len(scores)) * 100, 1))
+            else:
+                trend.append(precision)
+        else:
+            trend.append(precision)
+            
+    while len(trend) < 7:
+        trend.insert(0, 94.2)
+        
+    stale_delta = "Low"
+    if stale_tasks_count > 5:
+        stale_delta = "Critical"
+    elif stale_tasks_count > 2:
+        stale_delta = "Medium"
+
     return {
-        "meetings": {"value": total_meetings, "delta": "+12%"},
-        "tasks": {"value": total_tasks, "delta": "+5%"},
-        "decisions": {"value": total_decisions, "delta": "+2%"},
-        "stale_tasks": {"value": stale_tasks_count, "delta": "Low"},
-        "confidence": {"value": f"{precision}%", "delta": "+2.1%"},
+        "meetings": {"value": total_meetings, "delta": meetings_delta},
+        "tasks": {"value": total_tasks, "delta": tasks_delta},
+        "decisions": {"value": total_decisions, "delta": decisions_delta},
+        "stale_tasks": {"value": stale_tasks_count, "delta": stale_delta},
+        "confidence": {"value": f"{precision}%", "delta": "+0.0%"},
         "intelligence": {
             "precision": f"{precision}%",
             "provider": "Groq LLaMA 3.3",
             "fallback_active": False,
             "contextual_load": f"{min(100, total_tasks * 2)}%",
             "system_health": "Optimal",
-            "trend": [92.1, 91.5, 93.8, 92.4, 94.2, 93.9, 94.5] # Confidence trend
+            "trend": trend
         }
     }
 
 @router.get("/speakers")
 async def get_speakers(db: Prisma = Depends(get_db)):
-    # Get the official employees from the database
     employees = await db.employee.find_many()
-    
-    # Get all tasks for correlation
     tasks = await db.task.find_many()
+    decisions = await db.decision.find_many()
+    meetings = await db.meeting.find_many()
     
     results = []
     colors = ["bg-emerald-500", "bg-accent-blue", "bg-purple-500", "bg-rose-500", "bg-amber-500"]
     
     for i, emp in enumerate(employees):
-        # Count tasks owned by this specific employee
         owned_tasks = [t for t in tasks if t.employee_id == emp.id or (t.assignee_name and emp.name.lower() in t.assignee_name.lower())]
         task_count = len(owned_tasks)
         
-        # Get a quote if they have one, otherwise use a placeholder
+        # Real query correlation for decisions triggered by this employee
+        decisions_triggered = len([
+            d for d in decisions 
+            if d.decided_by_name and emp.name.lower() in d.decided_by_name.lower()
+        ])
+        
+        # Smart estimated words spoken: count mentions of their name in transcripts, plus task contributions
+        mentions = 0
+        name_lower = emp.name.lower()
+        first_name_lower = emp.name.split()[0].lower() if emp.name else ""
+        for m in meetings:
+            if m.raw_transcript:
+                text_lower = m.raw_transcript.lower()
+                mentions += text_lower.count(name_lower)
+                if first_name_lower and first_name_lower != name_lower:
+                    mentions += text_lower.count(first_name_lower)
+                    
+        words_spoken = task_count * 150 + decisions_triggered * 200 + mentions * 50 + 500
+        
         quote = ""
         for t in owned_tasks:
             if t.source_quote:
                 quote = t.source_quote
                 break
                 
-        initials = "".join([n[0] for n in emp.name.split()]).upper()[:2]
+        initials = "".join([n[0] for n in emp.name.split()]).upper()[:2] if emp.name else "U"
         
         results.append({
             "id": emp.id, 
             "name": emp.name, 
-            "role": emp.role or "Team Member", 
+            "role": getattr(emp, "role", "Team Member") or "Team Member", 
             "initials": initials,
             "color": colors[i % len(colors)], 
             "tasks_owned": task_count,
-            "decisions_triggered": (task_count // 2), 
-            "words_spoken": task_count * 150 + 500, # Mock metric based on activity
+            "decisions_triggered": decisions_triggered, 
+            "words_spoken": words_spoken,
             "notable_quote": quote or f"Active contributor to Team {emp.department or 'Engineering'}."
         })
         
@@ -568,37 +650,53 @@ async def get_speakers(db: Prisma = Depends(get_db)):
 
 @router.get("/stale-tasks")
 async def get_stale_tasks(db: Prisma = Depends(get_db)):
-    # Hardcoded, high-quality mock data for the Stale Tasks feature demonstration
-    return [
-        {
-            "id": "stale-001",
-            "title": "Finalize Payment Gateway API Contracts",
-            "description": "The frontend team is blocked waiting for the final Swagger definitions for the Stripe V2 integration. This was assigned last sprint but hasn't moved.",
-            "owner_dept": "Backend Eng",
-            "assignee_name": "Suman S.",
-            "assignee_initials": "SS",
-            "assignee_color": "bg-accent-blue",
-            "priority": "critical",
-            "status": "stale",
-            "days_overdue": 14,
-            "mentioned_in_meeting_id": "SYNC-492",
-            "created_at": "2026-03-01T10:00:00Z"
+    from datetime import datetime, timedelta
+    stale_threshold = datetime.now() - timedelta(days=7)
+    
+    # Query actual stale tasks
+    stale_tasks = await db.task.find_many(
+        where={
+            "created_at": {
+                "lt": stale_threshold
+            },
+            "status": {
+                "in": ["approved", "pending_review", "in_progress"]
+            }
         },
-        {
-            "id": "stale-002",
-            "title": "Provide Figma Handoff for Settings Panel",
-            "description": "Engineering cannot begin building the new user settings panel until Design provides the final interactive prototypes and spacing tokens.",
-            "owner_dept": "Design",
-            "assignee_name": "Suman S.",
-            "assignee_initials": "SS",
-            "assignee_color": "bg-emerald-500",
-            "priority": "high",
-            "status": "stale",
-            "days_overdue": 8,
-            "mentioned_in_meeting_id": "SYNC-501",
-            "created_at": "2026-03-06T14:30:00Z"
-        }
-    ]
+        include={
+            "meeting": True,
+            "employee": True
+        },
+        order={"created_at": "asc"}
+    )
+    
+    results = []
+    colors = ["bg-emerald-500", "bg-accent-blue", "bg-purple-500", "bg-rose-500", "bg-amber-500"]
+    now = datetime.now()
+    
+    for i, t in enumerate(stale_tasks):
+        days_overdue = (now - t.created_at).days
+        assignee_name = t.assignee_name or (t.employee.name if t.employee else "Unassigned")
+        initials = "".join([n[0] for n in assignee_name.split()]).upper()[:2] if assignee_name else "UA"
+        color = colors[i % len(colors)]
+        
+        results.append({
+            "id": t.id,
+            "title": t.title,
+            "description": t.description or "No description provided.",
+            "owner_dept": t.owner_dept or (t.employee.department if t.employee else "Engineering"),
+            "assignee_name": assignee_name,
+            "assignee_initials": initials,
+            "assignee_color": color,
+            "priority": t.priority,
+            "status": "stale", # Frontend expects "stale" status for overdue card styles
+            "days_overdue": max(1, days_overdue),
+            "mentioned_in_meeting_id": t.meeting.id if t.meeting else "SYNC-UNKNOWN",
+            "created_at": t.created_at.isoformat()
+        })
+        
+    return results
+
 
 @router.get("/meetings/{meeting_id}")
 async def get_meeting(meeting_id: str, db: Prisma = Depends(get_db)):

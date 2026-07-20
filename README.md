@@ -6,36 +6,53 @@ Verbex is a state-of-the-art meeting intelligence platform designed to transform
 
 ---
 
+## 🏗️ Architecture
+
+```mermaid
+graph TD
+    A[Frontend: React/Vite] -->|REST API / Chunk Uploads| B[Backend: FastAPI]
+    B -->|Prisma ORM| C[(Local PostgreSQL)]
+    B -->|Audio Transcription| D[Groq Whisper V3]
+    B -->|Intelligence Extraction| E[Groq LLaMA 3.3]
+    B -->|Issue Tracking| F[GitHub API]
+    B -->|Project Management| G[Jira API]
+    D -.->|Transcribed Text| E
+    E -.->|Tasks & Decisions| B
+```
+
+---
+
 ## 🚀 Key Features
 
 ### 1. **Hybrid Transcription Engine**
-- **Live Feedback**: Instant feedback using the Web Speech API.
+- **Live Feedback**: Instant feedback using the Web Speech API during live sessions.
 - **Precision Refinement**: Ultra-fast, high-fidelity transcription powered by **Groq Whisper Large V3**.
-- **Screen Audio Mixing**: Seamlessly mix your microphone and system audio (tabs/windows) to capture full presentation context.
+- **Screen Audio Mixing**: Capture full presentation context by mixing microphone and system audio.
 
 ### 2. **AI Intelligence Extraction**
-- **Automated Registry**: Extract tasks and decisions automatically using **Groq LLaMA 3.3 (gpt-oss-120b)**.
-- **Smart TL;DR**: Generates immediate strategic summaries for every meeting.
-- **Confidence Scoring**: Every extraction is measured for precision and contextual relevance.
+- **Automated Registry**: Extract tasks and decisions automatically using **Groq LLaMA 3.3**.
+- **Meeting Health Scoring**: Real-time analysis of meeting productivity and actionability.
+- **Smart TL;DR**: Immediate strategic summaries for every meeting.
+- **Confidence Scoring**: Precision measurement for every extracted item.
 
 ### 3. **Enterprise Integration**
-- **GitHub & Jira Sync**: Push extracted tasks directly to your issue trackers.
-- **Bi-directional Mapping**: Automatically maps AI-extracted owners to real team members' GitHub/Jira accounts.
-- **Bi-directional Status Sync**: Keep your project boards up-to-date with one click.
+- **GitHub & Jira Sync**: Push extracted tasks directly to your issue trackers with a single click.
+- **Employee Management**: Map AI-extracted owners to real team members with individualized credentials.
+- **Bi-directional Status Sync**: Keep your project boards up-to-date with real-time status updates.
 
 ### 4. **Management Oversight**
 - **Manager Dashboard**: Real-time meeting stats, health score trends, and system performance metrics.
-- **Speaker Map**: Track team ownership, load, and notable contributions.
-- **Stale Task Detection**: Automatically identify blockers that have been unresolved across multiple sessions.
+- **Speaker Map**: Visualize team ownership, contribution load, and notable quotes.
+- **Stale Task Detection**: Identify critical blockers that remain unresolved across sessions.
 
 ---
 
 ## 🛠️ Tech Stack
 
-- **Frontend**: React (Vite), TypeScript, Lucide Icons, Vanilla CSS (Premium Finish).
-- **Backend**: FastAPI (Python), Prisma ORM, PostgreSQL.
-- **AI Services**: Groq (LLaMA 3.3 & Whisper), OpenAI (Fallback).
-- **Deployment**: Docker, Docker Compose, Nginx.
+- **Frontend**: [React 18+](https://reactjs.org/), [Vite](https://vitejs.dev/), [TypeScript](https://www.typescriptlang.org/), [Lucide Icons](https://lucide.dev/), [Vanilla CSS](https://developer.mozilla.org/en-US/docs/Web/CSS).
+- **Backend**: [FastAPI](https://fastapi.tiangolo.com/) (Python 3.10+), [Prisma ORM](https://www.prisma.io/), [PostgreSQL](https://www.postgresql.org/).
+- **AI Services**: [Groq](https://groq.com/) (LLaMA 3.3 & Whisper V3), [OpenAI](https://openai.com/) (Fallback).
+- **Infrastructure**: Local Development Server.
 
 ---
 
@@ -43,33 +60,34 @@ Verbex is a state-of-the-art meeting intelligence platform designed to transform
 
 ### Prerequisites
 
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/)
 - [Groq API Key](https://console.groq.com/keys)
-- [Node.js](https://nodejs.org/) (Optional, for local development)
-- [Python 3.10+](https://www.python.org/) (Optional, for local development)
+- [Node.js](https://nodejs.org/)
+- [Python 3.10+](https://www.python.org/)
+- [PostgreSQL](https://www.postgresql.org/)
 
-### Quick Start with Docker
+### Local Setup
 
-1. **Clone the repository:**
+1. **Configure Environment Variables:**
+   Create a `.env` file in the `backend/` directory (see [Environment Variables](#environment-variables) for details).
+
+2. **Run Backend (FastAPI):**
    ```bash
-   git clone https://github.com/sumans-19/Verbex-AI.git
-   cd Verbex-AI
+   cd backend
+   python -m venv venv
+   # Activate virtual env:
+   # Windows: venv\Scripts\activate
+   # macOS/Linux: source venv/bin/activate
+   pip install -r requirements.txt
+   prisma db push
+   python seed_db.py            # Seed initial employees
+   uvicorn main:app --reload
    ```
 
-2. **Configure Environment Variables:**
-   Create a `.env` file in the `backend/` directory:
-   ```env
-   DATABASE_URL="postgresql://user:password@db:5432/verbex"
-   GROQ_API_KEY="your_groq_api_key"
-   GITHUB_TOKEN="your_personal_access_token"
-   JIRA_API_TOKEN="your_jira_api_token"
-   JIRA_EMAIL="your_email@example.com"
-   JIRA_SERVER="https://your-domain.atlassian.net"
-   ```
-
-3. **Launch the platform:**
+3. **Run Frontend (React/Vite):**
    ```bash
-   docker-compose up --build
+   cd frontend
+   npm install
+   npm run dev
    ```
 
 4. **Access Verbex:**
@@ -78,12 +96,43 @@ Verbex is a state-of-the-art meeting intelligence platform designed to transform
 
 ---
 
+## 🔐 Environment Variables
+
+The backend requires several environment variables to function correctly. Create a `.env` file in the `backend/` directory:
+
+| Variable | Description |
+|----------|-------------|
+| `DATABASE_URL` | PostgreSQL connection string (e.g., `postgresql://postgres:nandi@localhost:5432/verbexai`) |
+| `GROQ_API_KEY` | Your Groq Cloud API Key |
+| `GITHUB_TOKEN` | Default GitHub Personal Access Token |
+| `GITHUB_REPO_OWNER` | Default GitHub repository owner |
+| `GITHUB_REPO_NAME` | Default GitHub repository name |
+| `JIRA_EMAIL` | Default Jira account email |
+| `JIRA_API_TOKEN` | Default Jira API Token |
+| `JIRA_DOMAIN` | Default Jira domain (e.g., `company.atlassian.net`) |
+| `JIRA_PROJECT_KEY` | Default Jira project key |
+
+### Multi-Account Support (Optional)
+Verbex supports mapping tasks to specific team members. You can provide additional credentials for members (e.g., `GITHUB_TOKEN1`, `JIRA_EMAIL1`, etc.) in the `.env` file to enable per-user integration.
+
+---
+
+## 🔧 Database Utilities
+
+From the `backend/` directory, you can run the following helper scripts to manage your database state:
+- **Seed Employees**: `python seed_db.py` (Populates default employee directory list in database)
+- **Purge All Data**: `python clear_data.py` (Truncates all database tables and clears storage audio files)
+
+---
+
 ## 📖 Platform Guide
 
-- **New Meeting**: Navigate here to start a live session or upload an existing recording. You can also paste transcript texts for retrospective intelligence extraction.
-- **Task Board**: View all engineering tasks extracted from meetings with real-time status sync to GitHub and Jira.
-- **Speaker Map**: Review the "Ownership Map" to see which team members are leading specific projects and who needs support.
-- **Stale Tasks**: Check here for critical blockers that are overdue and require management intervention.
+- **New Meeting**: Start a live session with real-time transcription or upload audio/text files for processing.
+- **Task Board**: Integrated Kanban view of all extracted tasks. Sync status directly to GitHub/Jira.
+- **Decision Log**: Centralized repository of all critical decisions made during meetings.
+- **Employee Manager**: Configure team members and their individual integration credentials.
+- **Speaker Map**: Interactive visualization of meeting participation and ownership.
+- **Manager View**: High-level platform metrics and performance trends.
 
 ---
 

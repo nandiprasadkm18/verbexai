@@ -1,3 +1,18 @@
 node_modules
 # Keep environment variables out of version control
 .env
+
+# Python caching
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Local virtual environment
+venv/
+.venv/
+
+# Audio storage and temporary files
+storage/audio/*
+temp/

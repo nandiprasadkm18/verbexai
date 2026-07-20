@@ -14,17 +14,30 @@ from fastapi.responses import JSONResponse
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Verbex", version="1.2.0")
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup logic
+    if not db.is_connected():
+        await db.connect()
+    print("="*50)
+    print("Verbex Backend Started (Prisma + PostgreSQL)")
+    print(f"DATABASE_URL: {settings.DATABASE_URL}")
+    print("="*50)
+    
+    yield
+    
+    # Shutdown logic
+    if db.is_connected():
+        await db.disconnect()
+
+app = FastAPI(title="Verbex", version="1.2.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:8000",
-        "http://127.0.0.1:8000"
-    ],
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -35,26 +48,16 @@ async def global_exception_handler(request: Request, exc: Exception):
     logger.error(traceback.format_exc())
     return JSONResponse(
         status_code=500,
-        content={"detail": "Internal Server Error", "message": str(exc)},
-        headers={
-            "Access-Control-Allow-Origin": "http://localhost:5173",
-            "Access-Control-Allow-Credentials": "true",
-        }
+        content={"detail": "Internal Server Error", "message": str(exc)}
     )
 
-@app.on_event("startup")
-async def startup():
-    if not db.is_connected():
-        await db.connect()
-    print("="*50)
-    print("Verbex Backend Started (Prisma + PostgreSQL)")
-    print(f"DATABASE_URL: {settings.DATABASE_URL}")
-    print("="*50)
-
-@app.on_event("shutdown")
-async def shutdown():
-    if db.is_connected():
-        await db.disconnect()
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    logger.info(f"Incoming request: {request.method} {request.url}")
+    logger.info(f"Headers: {dict(request.headers)}")
+    response = await call_next(request)
+    logger.info(f"Response status: {response.status_code}")
+    return response
 
 @app.get("/")
 def read_root():
