@@ -1,8 +1,22 @@
-# 🎙️ Verbex: AI-Powered Meeting Intelligence
+# 🎙️ Verbex: Meeting Intelligence Reimagined
 
-Verbex is a state-of-the-art meeting intelligence platform designed to transform raw conversations into structured, actionable data. It leverages high-performance AI models to capture, transcribe, and analyze meetings in real-time, integrating seamlessly with your existing engineering workflows.
+> Transform raw, unstructured conversations into structured, actionable engineering realities.
 
-![Verbex Banner](https://images.unsplash.com/photo-1517245386807-bb43f82c33c4?auto=format&fit=crop&q=80&w=2070)
+---
+
+<p align="center">
+  <img src="https://images.unsplash.com/photo-1517245386807-bb43f82c33c4?auto=format&fit=crop&q=80&w=2070" alt="Verbex Banner" width="100%" style="border-radius: 8px;" />
+</p>
+
+<p align="center">
+  <strong>FastAPI</strong> &bull; <strong>React 19</strong> &bull; <strong>TypeScript</strong> &bull; <strong>Prisma ORM</strong> &bull; <strong>PostgreSQL</strong> &bull; <strong>Groq LLaMA 3.3</strong>
+</p>
+
+---
+
+## 💡 The Core Concept
+
+Verbex sits at the intersection of team collaboration and issue tracking. By leveraging high-performance large language models and whisper-fast transcription, it listens to your sync meetings, analyzes conversations, extracts tasks and decisions, and maps them directly to your team members' engineering backlogs on **GitHub** and **Jira**.
 
 ---
 
@@ -10,136 +24,139 @@ Verbex is a state-of-the-art meeting intelligence platform designed to transform
 
 ```mermaid
 graph TD
-    A[Frontend: React/Vite] -->|REST API / Chunk Uploads| B[Backend: FastAPI]
-    B -->|Prisma ORM| C[(Local PostgreSQL)]
-    B -->|Audio Transcription| D[Groq Whisper V3]
-    B -->|Intelligence Extraction| E[Groq LLaMA 3.3]
-    B -->|Issue Tracking| F[GitHub API]
-    B -->|Project Management| G[Jira API]
-    D -.->|Transcribed Text| E
-    E -.->|Tasks & Decisions| B
+    %% Core Nodes
+    FE[React 19 / Vite Frontend]
+    BE[FastAPI Backend Server]
+    DB[(Local PostgreSQL Database)]
+    AI[Groq Cloud / OpenAI API]
+    GH[GitHub Developer API]
+    JI[Jira Cloud REST API]
+
+    %% Communications
+    FE -->|REST API & Audio Streams| BE
+    BE -->|Prisma Client| DB
+    BE -->|Whisper V3 & LLaMA 3.3| AI
+    BE -->|Issue Dispatch & Sync| GH
+    BE -->|ADF Ticket Mapping| JI
+    GH -->|Real-Time Status Webhook| BE
+
+    %% Styling
+    classDef default fill:#f8fafc,stroke:#e2e8f0,stroke-width:1px;
+    classDef primary fill:#f0fdfa,stroke:#14b8a6,stroke-width:2px,color:#0d9488;
+    class FE,BE,DB primary;
 ```
 
 ---
 
-## 🚀 Key Features
+## 🚀 Key Ingestion & Intelligence Engines
 
-### 1. **Hybrid Transcription Engine**
-- **Live Feedback**: Instant feedback using the Web Speech API during live sessions.
-- **Precision Refinement**: Ultra-fast, high-fidelity transcription powered by **Groq Whisper Large V3**.
-- **Screen Audio Mixing**: Capture full presentation context by mixing microphone and system audio.
+### 🎙️ 1. Hybrid Transcription Engine
+*   **Dual-Stream Audio Mixing**: Integrates the browser's **Web Audio API** to mix microphone capture and system display audio (like Google Meet/Zoom presentation feeds) into a single high-quality stream.
+*   **Fail-Safe Ingestion Fallback**: Uses browser-level **Web Speech API** for real-time transcript preview, serving as a backup transcription buffer if network connections to backend Whisper endpoints drop.
+*   **High-Speed Whisper Parsing**: Powered by **Groq Whisper Large V3-Turbo** for near-instant post-meeting transcription.
 
-### 2. **AI Intelligence Extraction**
-- **Automated Registry**: Extract tasks and decisions automatically using **Groq LLaMA 3.3**.
-- **Meeting Health Scoring**: Real-time analysis of meeting productivity and actionability.
-- **Smart TL;DR**: Immediate strategic summaries for every meeting.
-- **Confidence Scoring**: Precision measurement for every extracted item.
+### 🧠 2. AI Intelligence & Feature Gate
+*   **LLaMA 3.3 Entity Extraction**: Parses transcripts using customized, structured extraction prompts, identifying owners, priority levels, and extracting exact transcript source quotes.
+*   **Confidence Gate Kanban**: Categorizes extracted tasks into a 3-column Kanban board based on AI extraction confidence score thresholds: Auto-Pushed ($\ge 0.75$), Needs Review ($0.50$ - $0.74$), and Discarded ($< 0.50$).
 
-### 3. **Enterprise Integration**
-- **GitHub & Jira Sync**: Push extracted tasks directly to your issue trackers with a single click.
-- **Employee Management**: Map AI-extracted owners to real team members with individualized credentials.
-- **Bi-directional Status Sync**: Keep your project boards up-to-date with real-time status updates.
-
-### 4. **Management Oversight**
-- **Manager Dashboard**: Real-time meeting stats, health score trends, and system performance metrics.
-- **Speaker Map**: Visualize team ownership, contribution load, and notable quotes.
-- **Stale Task Detection**: Identify critical blockers that remain unresolved across sessions.
-
----
-
-## 🛠️ Tech Stack
-
-- **Frontend**: [React 18+](https://reactjs.org/), [Vite](https://vitejs.dev/), [TypeScript](https://www.typescriptlang.org/), [Lucide Icons](https://lucide.dev/), [Vanilla CSS](https://developer.mozilla.org/en-US/docs/Web/CSS).
-- **Backend**: [FastAPI](https://fastapi.tiangolo.com/) (Python 3.10+), [Prisma ORM](https://www.prisma.io/), [PostgreSQL](https://www.postgresql.org/).
-- **AI Services**: [Groq](https://groq.com/) (LLaMA 3.3 & Whisper V3), [OpenAI](https://openai.com/) (Fallback).
-- **Infrastructure**: Local Development Server.
+### 🔄 3. Bidirectional Project Status Sync
+*   **GitHub webhook Integration**: Automatically listens to issue closure/reopening webhook events, updating local task cards and recalculating the associated meeting's **Health Score**.
+*   **Jira ADF Translation**: Translates meeting notes and descriptions dynamically into Atlassian Document Format (ADF) JSON payloads.
 
 ---
 
 ## 🚦 Getting Started
 
-### Prerequisites
+### 📋 Prerequisites
+Make sure you have the following installed locally:
+*   [Node.js](https://nodejs.org/) (v18+)
+*   [Python](https://www.python.org/) (3.10+)
+*   [PostgreSQL](https://www.postgresql.org/) (Local running instance)
+*   [Groq API Key](https://console.groq.com/)
 
-- [Groq API Key](https://console.groq.com/keys)
-- [Node.js](https://nodejs.org/)
-- [Python 3.10+](https://www.python.org/)
-- [PostgreSQL](https://www.postgresql.org/)
+---
 
-### Local Setup
+### 🔧 Local Setup & Run
 
-1. **Configure Environment Variables:**
-   Create a `.env` file in the `backend/` directory (see [Environment Variables](#environment-variables) for details).
+#### 1. Configure the Environment
+Create a `.env` file inside the `backend/` directory (see [Environment Variables](#-environment-variables) below).
 
-2. **Run Backend (FastAPI):**
-   ```bash
-   cd backend
-   python -m venv venv
-   # Activate virtual env:
-   # Windows: venv\Scripts\activate
-   # macOS/Linux: source venv/bin/activate
-   pip install -r requirements.txt
-   prisma db push
-   python seed_db.py            # Seed initial employees
-   uvicorn main:app --reload
-   ```
+#### 2. Spin Up the Backend (FastAPI)
+```bash
+# Navigate to backend
+cd backend
 
-3. **Run Frontend (React/Vite):**
-   ```bash
-   cd frontend
-   npm install
-   npm run dev
-   ```
+# Initialize and activate Python virtual environment
+python -m venv venv
+# On Windows:
+venv\Scripts\activate
+# On macOS/Linux:
+source venv/bin/activate
 
-4. **Access Verbex:**
-   - **Frontend**: [http://localhost:5173](http://localhost:5173)
-   - **API Docs**: [http://localhost:8000/docs](http://localhost:8000/docs)
+# Install requirements
+pip install -r requirements.txt
+
+# Sync PostgreSQL schema & compile Prisma Client
+prisma db push
+
+# Seed initial employee directory list
+python seed_db.py
+
+# Launch development server
+uvicorn main:app --reload
+```
+
+#### 3. Spin Up the Frontend (Vite)
+```bash
+# Navigate to frontend
+cd frontend
+
+# Install Node dependencies
+npm install
+
+# Start Vite dev server
+npm run dev
+```
 
 ---
 
 ## 🔐 Environment Variables
 
-The backend requires several environment variables to function correctly. Create a `.env` file in the `backend/` directory:
+Create a `backend/.env` file with the following variables:
 
-| Variable | Description |
-|----------|-------------|
-| `DATABASE_URL` | PostgreSQL connection string (e.g., `postgresql://postgres:nandi@localhost:5432/verbexai`) |
-| `GROQ_API_KEY` | Your Groq Cloud API Key |
-| `GITHUB_TOKEN` | Default GitHub Personal Access Token |
-| `GITHUB_REPO_OWNER` | Default GitHub repository owner |
-| `GITHUB_REPO_NAME` | Default GitHub repository name |
-| `JIRA_EMAIL` | Default Jira account email |
-| `JIRA_API_TOKEN` | Default Jira API Token |
-| `JIRA_DOMAIN` | Default Jira domain (e.g., `company.atlassian.net`) |
-| `JIRA_PROJECT_KEY` | Default Jira project key |
-
-### Multi-Account Support (Optional)
-Verbex supports mapping tasks to specific team members. You can provide additional credentials for members (e.g., `GITHUB_TOKEN1`, `JIRA_EMAIL1`, etc.) in the `.env` file to enable per-user integration.
+| Key | Description | Example / Required |
+|:---|:---|:---|
+| `DATABASE_URL` | PostgreSQL connection string | `postgresql://postgres:nandi@localhost:5432/verbexai` |
+| `GROQ_API_KEY` | Your Groq Cloud API credentials | `gsk_...` |
+| `GITHUB_TOKEN` | Global GitHub personal access token | `ghp_...` |
+| `GITHUB_REPO_OWNER`| Target repository owner | `nandiprasadkm18` |
+| `GITHUB_REPO_NAME` | Target repository name | `verbexai` |
+| `JIRA_EMAIL` | Global Jira account email | `you@email.com` |
+| `JIRA_API_TOKEN` | Global Jira developer API token | `ATATT...` |
+| `JIRA_DOMAIN` | Target Jira workspace subdomain | `yourcompany.atlassian.net` |
+| `JIRA_PROJECT_KEY` | Jira project key prefix | `SCRUM` |
 
 ---
 
 ## 🔧 Database Utilities
 
-From the `backend/` directory, you can run the following helper scripts to manage your database state:
-- **Seed Employees**: `python seed_db.py` (Populates default employee directory list in database)
-- **Purge All Data**: `python clear_data.py` (Truncates all database tables and clears storage audio files)
+From the `backend/` directory, you can run the following helper scripts:
+*   **Seed Employees**: `python seed_db.py`  
+    *Populates the database with default engineers and managers ready to receive task assignments.*
+*   **Purge Database & Storage**: `python clear_data.py`  
+    *Truncates all data tables (cascade deleting tasks/meetings) and purges cached local recordings from `storage/audio/`.*
 
 ---
 
-## 📖 Platform Guide
+## 📖 Platform Tour
 
-- **New Meeting**: Start a live session with real-time transcription or upload audio/text files for processing.
-- **Task Board**: Integrated Kanban view of all extracted tasks. Sync status directly to GitHub/Jira.
-- **Decision Log**: Centralized repository of all critical decisions made during meetings.
-- **Employee Manager**: Configure team members and their individual integration credentials.
-- **Speaker Map**: Interactive visualization of meeting participation and ownership.
-- **Manager View**: High-level platform metrics and performance trends.
-
----
-
-## 📄 License
-
-Distributed under the MIT License. See `LICENSE` for more information.
+*   **Manager View**: High-level strategic overview of your team's meeting metrics, confidence scores, and workload load chart.
+*   **All Meetings**: Explore the meeting catalog, inspect transcripts, and edit tasks/decisions.
+*   **Task Board**: Kanban view tracking tasks categorized by AI confidence gates.
+*   **Decision Log**: A permanent timeline ledger of resolved agreements from meeting syncs.
+*   **Speaker Map**: Algorithmic voice tracking and speaker ownership mapping.
+*   **Stale Tasks**: Alerts listing delayed tasks older than 7 days that require management action.
 
 ---
 
-Built with ❤️ by the Verbex Team.
+Distributed under the MIT License. Built with ❤️ by the Verbex Team.
