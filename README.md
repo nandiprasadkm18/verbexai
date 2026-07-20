@@ -164,6 +164,3 @@ From the `backend/` directory, you can run the following helper scripts:
 *   **Speaker Map**: Algorithmic voice tracking and speaker ownership mapping.
 *   **Stale Tasks**: Alerts listing delayed tasks older than 7 days that require management action.
 
----
-
-Distributed under the MIT License. Built with ❤️ by the Verbex Team.
